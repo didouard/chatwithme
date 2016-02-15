@@ -10,71 +10,107 @@ var User = function (data) {
   var socket = data.socket;
   var roomsManager = data.roomsManager;
   
-  socket.on("error", function (err) {
-    console.error(err);
-  })
-  
-  socket.on("in", function (jobs) {
-    if (!(jobs instanceof Array)) return console.error("ERROR: user.on(in, data). data need to be an array");
-    
-    for (var i = 0; i < jobs.length; i++) {
-      var job = jobs[i];
-      if (!(job.action in self)) return console.error("ERROR: action: " + job.action + " not found");
-      console.log("call function :", job.action);
-      self[job.action](job);
-    }
-  });
-
-  this.getName = function () {
-    return name;
+  this.getName = function (data, callback) {
+    return callback(null, name);
   };
   
-  this.getAllRoom = function () {
+  this.getAllRoom = function (data, callback) {
     console.log("getAllRoom");
-    var params = {
-      action: "roomList"
-      , rooms: roomsManager.serializeAllRoom()
-    };
-    self.notify(params);
+    
+    roomsManager.serializeAllRoom(null, function (err, rooms) {
+      if (err) return callback(err);
+      var params = {
+        action: "roomList"
+        , rooms: rooms
+      };
+      self.notify(params);  
+      return callback();
+    });
   };
   
-  this.notify = function (data) {
+  this.notify = function (data, callback) {
     socket.emit("out", data);
+    if (callback) return callback();
   };
 
+  this.joinRoom = function (data, callback) {
+    
+    roomsManager.get(data.roomName, function (err, room) {
+      rooms.push(room);
+      
+      if (err) return callback(err);
+      var addUser = function (callback) {
+        room.addUser(self, callback);
+      };
   
-  this.joinRoom = function (data) {
-    var room = roomsManager.get(data.roomName);
-    room.addUser(self);
-
-    // on envoie tous les informations necessaire pour contruire la room
-    var job = room.serializeAll();
-    job.action = "joinRoom";
-    self.notify(job);
+      var serialize = function (callback) {
+        room.serializeAll(null, callback);
+      };
+      
+      var notify = function (job, callback) {
+        job.action = "joinRoom";
+        self.notify(job, function () {});
+      };
+      
+      var jobs = [addUser, serialize, notify];
+      async.waterfall(jobs);
+    });
   };
 
-  this.quitRoom = function (data) {
+  this.quitRoom = function (data, callback) {
     
   };
 
-  this.newMessage = function (data) {
-    data.room = roomsManager.get(data.roomName);
-    data.user = self;
-    // data.message = data.message
-    
-    var message = new Message(data);
-    data.message = message;
-    data.room.addMessage(data);
+  this.newMessage = function (data, callback) {
+    roomsManager.get(data.roomName, function (err, room) {
+      if (err) return callback(err);
+      data.user = self;
+      data.room = room;
+      // data.message = data.message
+      
+      var message = new Message(data);
+      data.message = message;
+      room.addMessage(data, callback);
+    });
   };
   
-  this.setName = function (data) {
+  this.setName = function (data, callback) {
     name = data.name;
     
-    for (var i = 0; i < rooms.length; i++) {
-      rooms[i].broadcastUsers();
-    }
+    async.map(rooms, function (room, callback) {
+      return rooms.broadcastUsers(callback);
+    }, callback);
   };
   
+  this.disconnect = function (data, callback) {
+    async.map(rooms, function (room, callback) {
+      room.removeUser(self, callback);
+    });
+  };
+  
+  if (socket) {
+    socket.on('disconnect', function(){
+      console.log(name, 'disconnected');
+      self.disconnect(null, function () {});
+    });
+    
+    socket.on("error", function (err) {
+      console.error("ERROR on socket", err);
+    });
+    
+    socket.on("in", function (jobs) {
+      if (!(jobs instanceof Array)) return console.error("ERROR: user.on(in, data). data need to be an array");
+      
+      for (var i = 0; i < jobs.length; i++) {
+        var job = jobs[i];
+        if (!(job.action in self)) return console.error("ERROR: action: " + job.action + " not found");
+        console.log("call function :", job.action);
+        self[job.action](job, function (err) {
+          if (err) console.log("ERROR:", err);
+        });
+      }
+    });
+  }
 };
 
 module.exports = User;

@@ -9,6 +9,10 @@ var Room = function (data) {
   
   var element;
   
+  this.setUsers = function (lUsers) {
+    users = lUsers;
+  }
+  
   this.load = function (data) {
     var $allRooms = $($(".allRooms").get(0));
     element = $($allRooms.children().get(0)).clone(0);

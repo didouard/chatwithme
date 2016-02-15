@@ -38,7 +38,12 @@ self.roomList = function (job) {
 };
 
 self.roomUsers = function (job) {
+  var users = job.users;
+  var room = getRoom(job.roomName);
   
+  if (!room) return console.error("roomUsers: ", job.roomName, "not found");
+  room.setUsers(users);
+  room.updateUsersList();
 };
 
 self.roomMessages = function (job) {
